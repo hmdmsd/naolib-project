@@ -1,0 +1,8 @@
+pyspark==3.5.3
+kafka-python==2.0.2; python_version < '3.12'
+kafka-python @ git+https://github.com/dpkp/kafka-python.git ; python_version >= '3.12'
+jupysql==0.10.14
+pandas==2.2.3
+seaborn==0.13.2
+requests==2.31.0
+matplotlib==3.8.3
