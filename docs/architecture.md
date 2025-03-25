@@ -1,124 +1,198 @@
 # Naolib Project Architecture
 
-This document outlines the architecture of the Naolib Real-time Transportation Analysis project.
+This document outlines the architecture of the Naolib Real-time Transportation Analysis project, including our implementation choices and adaptations.
 
-## System Architecture
+## System Architecture (Text Description)
 
-![Architecture Diagram](https://mermaid.ink/img/pako:eNqFk01v2zAMhv8K4VMLOLbj2HYQYEDRYYcBKdpedgx0OLbYWKIr0SiKIP99tN2mbYIum2GIZL_Pw48UbrlRChfcuK2y8BHJzn2lGdZ8r0Bw_o0i5YV0kqJLlUvF92qQxPrWsGr5HcLV5Xy23CyX14vrf5Iojb-oWIeIoGh7l1cUtfLQNgS35OJG2VSSQzDzTkVj7MQw-3l3t359fHrYbNfPm8fr2w_fPn79_PFmf3g95J1X1YrXeIYWvVQIbZ-8t-UrKw6WvwYJUL13UDIrUTgYNFLgDnYLMtOYXEpKKW28-wO8lcrxKj4VQIIyIlUpGGmfHjyapFqGFKSzrJRYuJRTIGmJQqjOMhOVLXcPrgQq2k9cPrtYn_rMf5dBqw3LtMg13SYWolC70p6vHgOqFPLRsZ-Gw06adKf7nnunBYqD5tqR3ydLvWRWKgdoE3nGttx2QIX2nQDhxBLpGV1z-F6kPVPCsM5SnRqqHO97Cg_KOqZoCvRSK3OU18tBa3Qp-qvfYvJT6qlLTtvG5sDK-1IlZXGbU3ygTnJNYWEcqgLk5JpNwQrTZZMV9PG5pRrSu81wKcCdYd8gqDrFHxnVcm1Y84yfaBsdBkavobw1xMtIJ0n9vPMLnWROQp9J0AxZEBnPuYJ3PsVFl3fKwC2U5lQf5Z6hkBKe2L6LcOGZyiKFbEYv4i-xmvPaD5J5PBELHvZXQ2PHjIYlUJrhwrf-7h8w4hEp)
+Our system architecture follows a modular design with five main components:
+
+```
+[Naolib API] → [Data Collector] → [Kafka Message Broker] → [Analysis Layer] → [Visualization]
+                     ↑                      ↑                       ↓
+                  Requests               Topics                     ↓
+                     ↑                      ↑                       ↓
+                     └──────────────────────┴───────────────────────┘
+                                     Data Flow
+```
+
+1. **Data Source**: Naolib API
+2. **Data Collection**: Python script in Jupyter notebook
+3. **Message Broker**: Apache Kafka
+4. **Processing**: Batch & simulated streaming analysis
+5. **Visualization**: Pandas, Seaborn, Matplotlib
+
+Data flows from the Naolib API through our collector, into Kafka, then to our analysis notebooks, with results displayed through visualizations.
 
 ### Components
 
 1. **Data Source**:
 
    - Naolib API provides real-time data about public transportation in Nantes
-   - REST API endpoints return JSON data
+   - REST API endpoints return JSON data about bus/tram wait times
+   - Example endpoint: `https://open.tan.fr/ewp/tempsattentelieu.json/{stop_code}/{num_passages}`
 
 2. **Data Collection Layer**:
 
-   - Python script pulls data from the API at regular intervals
-   - Jupyter notebook environment for interactive data collection
-   - Data is enriched with timestamps and metadata
+   - Python script (`naolib_data_collector.ipynb`) pulls data from the API at regular intervals
+   - Uses Python's `requests` library for API interaction
+   - Enriches data with timestamps and metadata
+   - Implements Kafka producer to send data to messaging layer
 
 3. **Messaging Layer**:
 
    - Apache Kafka serves as the message broker
    - Topic: `naolib_realtime` stores all transportation data
-   - Ensures reliable delivery and persistence of data
+   - Benefits:
+     - Decouples data collection from processing
+     - Provides persistent storage of messages
+     - Enables both batch and streaming analysis from the same data
 
 4. **Processing Layer**:
 
-   - Apache Spark (PySpark) for both batch and streaming analysis
-   - Batch processing for historical analysis
-   - Structured streaming for real-time analysis with time windows
+   - Initially designed to use PySpark for both batch and streaming analysis
+   - Due to integration challenges between Spark and Kafka in our environment, we adapted to:
+     - `naolib_batch_analysis_simple.ipynb`: Uses Python Kafka client for direct reading from Kafka, with Pandas for analysis
+     - `naolib_streaming_analysis_simple.ipynb`: Simulates streaming with periodic polling of Kafka, implements time windows in application code
 
 5. **Visualization Layer**:
-   - Pandas and Seaborn for batch analysis visualization
-   - Console output for streaming analysis results
+   - Pandas and Seaborn for data visualization
+   - Matplotlib for interactive charts
+   - Displays results directly in Jupyter notebooks
 
 ### Data Flow
 
 1. **Collection Flow**:
 
-   - The `naolib_data_collector.ipynb` notebook polls the Naolib API every 30 seconds
-   - Data is enriched with collection timestamps and metadata
-   - The enriched data is sent to Kafka topic `naolib_realtime`
+   - Data collector polls Naolib API every 30 seconds
+   - Extracts wait time data for key transportation stops in Nantes
+   - Enriches data with collection timestamps and metadata
+   - Serializes to JSON and sends to Kafka topic `naolib_realtime`
 
 2. **Batch Analysis Flow**:
 
-   - The `naolib_batch_analysis.ipynb` notebook reads all historical data from Kafka
-   - Data is processed using Spark SQL
-   - Results are converted to Pandas DataFrames for visualization
-   - Visualizations show patterns and statistics about wait times
+   - Batch analysis notebook consumes all historical messages from Kafka topic
+   - Expands nested arrival data into flat structure
+   - Performs two key analyses:
+     - Average wait times by line and stop
+     - Wait time distribution by hour of day
+   - Visualizes results using Seaborn and Matplotlib
+   - Generates summary of key findings
 
 3. **Streaming Analysis Flow**:
-   - The `naolib_streaming_analysis.ipynb` notebook connects to Kafka
-   - Structured streaming processes data in real-time using time windows
-   - Results are continuously updated and displayed in the console
+   - Streaming analysis notebook continuously polls for new messages
+   - Implements a simulated sliding window approach using timestamps
+   - Performs two real-time analyses:
+     - Real-time average wait times (10-minute window)
+     - Delay detection and alerting (15-minute window)
+   - Updates visualizations in real-time as new data arrives
 
 ## Time Windows
 
-This project employs various time windows for streaming analysis:
+Our project uses time windowing for streaming analysis:
 
-1. **10-minute sliding windows** with 2-minute slides
+1. **10-minute sliding windows** for average wait times
 
-   - Used for calculating real-time average wait times
-   - Provides a smoothed view that updates frequently
+   - Implementation: Filter data collected in the last 10 minutes
+   - Updates every polling cycle
+   - Provides a smoothed view of current wait times
 
-2. **15-minute sliding windows** with 5-minute slides
+2. **15-minute sliding windows** for delay detection
+   - Longer window to improve reliability of delay detection
+   - Identifies patterns suggesting service disruptions
+   - Allows classification of delay severity
 
-   - Used for delay detection
-   - Balances responsiveness with stability in alerts
+## Implementation Details
 
-3. **30-minute tumbling windows**
-   - Used for service disruption pattern detection
-   - Provides a more comprehensive view for identifying systemic issues
+### Kafka Integration
 
-## Schema
+- **Producer**: KafkaProducer in `naolib_data_collector.ipynb`
 
-The main data schema includes:
+  - Configuration: `bootstrap_servers='kafka:9092'`
+  - JSON serialization: `value_serializer=lambda v: json.dumps(v).encode('utf-8')`
+  - Topic: `naolib_realtime`
+
+- **Consumer**: KafkaConsumer in batch and streaming notebooks
+  - Direct Python client used instead of Spark-Kafka integration
+  - Configuration: `bootstrap_servers='kafka:9092', auto_offset_reset='earliest'`
+  - JSON deserialization: `message.value.decode('utf-8')`
+
+### Data Schema
+
+The main data schema in our Kafka messages:
 
 ```
-message
-├── timestamp (string)
-├── stop_code (string)
-├── stop_name (string)
-└── arrivals (array)
-    ├── sens (string)
-    ├── terminus (string)
-    ├── infotrafic (boolean)
-    ├── temps (string)
-    ├── dernierDepart (string)
-    ├── tempsReel (string)
-    ├── ligne
-    │   ├── numLigne (string)
-    │   └── typeLigne (string)
-    └── arret
-        └── codeArret (string)
+{
+  "timestamp": "YYYY-MM-DD HH:MM:SS",
+  "stop_code": "XXXX",
+  "stop_name": "Stop Name",
+  "arrivals": [
+    {
+      "sens": 1,
+      "terminus": "Destination Name",
+      "infotrafic": false,
+      "temps": "X min",
+      "dernierDepart": "...",
+      "tempsReel": "...",
+      "ligne": {
+        "numLigne": "C6",
+        "typeLigne": "..."
+      },
+      "arret": {
+        "codeArret": "XXXX"
+      }
+    },
+    ...
+  ]
+}
 ```
 
-After processing, the key fields for analysis are:
+After processing, we expand this nested structure to create a flattened dataframe with one row per arrival:
 
-- `collection_timestamp`: When the data was collected
-- `stop_name`: Name of the stop
-- `line_number`: Bus/tram line number
-- `terminus`: Final destination
-- `wait_time_minutes`: Wait time in minutes
-- `is_real_time`: Whether the time is based on real-time data
+```
+- timestamp: When the data was collected
+- stop_code: Code of the stop (e.g., "COMM")
+- stop_name: Name of the stop (e.g., "Commerce")
+- direction: Direction code
+- terminus: Final destination
+- wait_time_text: Original wait time text (e.g., "5 min", "proche")
+- wait_time_minutes: Converted numeric wait time
+- is_real_time: Whether the time is based on real-time data
+- line_number: Bus/tram line number (e.g., "C6")
+- processing_time: When the data was processed
+```
+
+### Adaptation Challenges
+
+Our project faced several integration challenges that required adaptations:
+
+1. **Spark-Kafka Integration**: We encountered issues with the Spark-Kafka connector in our environment. Rather than spending excessive time on configuration, we adapted by:
+
+   - Using the direct Python Kafka client
+   - Implementing data processing in Pandas
+   - Creating a simulated streaming approach with periodic polling
+
+2. **Time Windows**: Without native Spark Streaming windows, we implemented time windowing by:
+   - Adding processing_time timestamps to all data
+   - Filtering based on these timestamps to simulate windows
+   - Recalculating aggregations on each polling cycle
+
+These adaptations demonstrate our ability to problem-solve while still achieving the project objectives.
 
 ## Environment
 
-The entire solution runs in Docker containers:
+The project environment runs in Docker containers:
 
-- Kafka and Zookeeper for messaging
-- Spark master and worker for processing
+- Kafka for messaging
+- Zookeeper for Kafka coordination
+- Spark for processing (though we adapted to use less of Spark's features)
 - Jupyter notebook for interactive analysis
 
-## Future Enhancements
+## Future Improvements
 
-Potential enhancements to this architecture include:
+With more time, our architecture could be enhanced with:
 
-1. Persistent storage with a time-series database
-2. Web-based dashboards for real-time monitoring
-3. Notifications via email or messaging for severe delays
-4. Machine learning models for predictive analytics
-5. Integration with other data sources (weather, events, etc.)
+1. **Proper Spark Streaming**: Resolve Spark-Kafka integration for true streaming
+2. **Persistent Storage**: Add a time-series database for long-term storage
+3. **Interactive Dashboard**: Create a real-time web dashboard
+4. **Alert System**: Implement email or SMS notifications for severe delays
+5. **Machine Learning**: Add predictive models for wait time forecasting
