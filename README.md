@@ -26,7 +26,7 @@ This project performs real-time analysis of Nantes public transportation data us
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd naolib-transportation-analysis
+cd naolib-project
 
 # Start the Docker environment
 docker-compose up -d
